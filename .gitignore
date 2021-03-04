@@ -1,0 +1,9 @@
+## Build directory
+build
+
+## Output executable files
+*.elf
+*.3dsx
+
+# Metadata
+*.smdh
