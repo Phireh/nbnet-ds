@@ -7,3 +7,6 @@ build
 
 # Metadata
 *.smdh
+
+# Emacs files
+\.dir-locals.el

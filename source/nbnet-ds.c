@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 
 #include <3ds.h>
 
@@ -45,6 +46,8 @@
 u32 *soc_buffer;
 s32 soc_descriptor = -1;
 int nbn_started = 0;
+
+bool all_good = false;
 
 static const char *log_type_strings[] = {
     "INFO",
@@ -86,21 +89,49 @@ int main()
             }
             else
             {
-                printf("SOC service initialized\n");
-                
-                NBN_GameClient_Init(ECHO_PROTOCOL_NAME, "127.0.0.1", ECHO_EXAMPLE_PORT);
-                NBN_GameClient_RegisterMessage(ECHO_MESSAGE_TYPE, EchoMessage);
+                printf("SOC service initialized. Trying to get a broadcast socket...\n");
 
-                if (NBN_GameClient_Start() < 0)
+                soc_descriptor = socket(AF_INET, SOCK_DGRAM, 0);
+
+                if (soc_descriptor == -1)
                 {
-                    printf("Failed so start NBN client\n");
-                    // Deinit the client
-                    NBN_GameClient_Deinit();
+                    printf("Error trying to get socket descriptor: %s\n", strerror(errno));
                 }
                 else
                 {
-                    nbn_started = 1;
-                    printf("NBN client started\n");
+                    if (fcntl(soc_descriptor, F_SETFL, O_NONBLOCK, 1))
+                    {
+                        printf("Error trying to set descriptor flags: %s\n", strerror(errno));
+                    }
+                    else
+                    {
+                        // All good!
+                        // NOTE: Apparently SO_BROADCAST is unneeded in devkitpro?
+                        // https://libctru.devkitpro.org/socket_8h_source.html - line 45
+
+                        struct addrinfo hints;
+                        struct addrinfo *res;
+
+                        memset(&hints, 0, sizeof(hints));
+                        hints.ai_family = AF_UNSPEC;
+                        hints.ai_socktype = SOCK_DGRAM;
+
+
+                        if (getaddrinfo("255.255.255.255", "12345", &hints, &res))
+                        {
+                            printf("Error trying to get broadcast address: %s\n", gai_strerror(errno));
+                        }
+                        else
+                        {
+                            // All good
+                            //bind(soc_descriptor, (struct sockaddr*) &broadcast_addr, sizeof(broadcast_addr));
+
+                            char human_str[128];
+                            inet_ntop(res->ai_family, res->ai_addr, human_str, 128);
+                            printf("Our IP is %s\n", human_str);
+                            
+                        }                        
+                    }
                 }
             }
         }
@@ -117,98 +148,12 @@ int main()
             if (kDown & KEY_START)
                 break;
 
-            static bool running = true;
-            static bool connected = false;
-            static bool disconnected = false;
-            
-            if (nbn_started && running)
+
+            if (all_good)
             {
-                // Number of seconds between client ticks
-                // NOTE: This may be useful for a more involved example, but we're already locked at
-                // 60fps by the aptMainLoop() function so we don't sleep to simplify the example
-                double dt = 1.0 / ECHO_TICK_RATE;
-
-                // Update client clock
-                NBN_GameClient_AddTime(dt);
-                int ev;
-                    
-                while ((ev = NBN_GameClient_Poll()) != NBN_NO_EVENT)
-                {
-                    if (ev < 0)
-                    {
-                        Log(LOG_ERROR, "An error occured while polling client events.");
-                        running = false;
-                        break;
-                    }
-                    switch (ev)
-                    {
-                    case NBN_CONNECTED:
-                        Log(LOG_INFO, "Connected");
-                        connected = true;
-                        break;
-
-                    case NBN_DISCONNECTED:
-                        Log(LOG_INFO, "Disconnected");
-                        connected = false;
-                        disconnected = true;
-                        break;
-
-                    case NBN_MESSAGE_RECEIVED:
-                        ; // empty statement to avoid label preceding declaration error
-                        // Get info about the received message
-                        NBN_MessageInfo msg_info = NBN_GameClient_GetReceivedMessageInfo();
-                        assert(msg_info.type == ECHO_MESSAGE_TYPE);
-                            
-                        // Retrieve the received message
-                        EchoMessage *msg = (EchoMessage *)msg_info.data;
-                        Log(LOG_INFO, "Received echo: %s (%d bytes)", msg->data, msg->length);
-                        NBN_GameClient_DestroyMessage(ECHO_MESSAGE_TYPE, msg);
-                            
-                        break;
-                    }
-                }
-
-                if (disconnected)
-                    break;
-
-                if (connected)
-                {
-                    char *msg = "Testing from Citra\n";
-                    unsigned int length = strlen(msg); // Compute message length
-
-                    // Create new reliable EchoMessage
-                    EchoMessage *echo = NBN_GameClient_CreateReliableMessage(ECHO_MESSAGE_TYPE);
-
-                    if (echo == NULL)
-                        return -1;
-
-                    // Fill EchoMessage with message length and message data
-                    echo->length = length + 1;
-                    memcpy(echo->data, msg, length + 1);
-
-                    // Send it to the server
-                    if (NBN_GameClient_SendMessage() < 0)
-                        Log(LOG_ERROR, "Unable to send message to server");
-                    else
-                        Log(LOG_INFO, "Sent message to server");
-                }
-
-                // Pack all enqueued messages as packets and send them
-                if (NBN_GameClient_SendPackets() < 0)
-                {
-                    Log(LOG_ERROR, "Failed to send packets. Exit");
-
-                    // Stop main loop
-                    running = false;
-                    break;
-                }
-            }        
+                
+            }
         }
-        // Stop the client
-        NBN_GameClient_Stop();
-
-        // Deinit the client
-        NBN_GameClient_Deinit();
 
         socExit();
         gfxExit();
