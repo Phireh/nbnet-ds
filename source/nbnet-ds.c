@@ -12,7 +12,6 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <3ds.h>
-#include <poll.h>
 
 #define SOC_ALIGNMENT 0x1000
 #define SOC_SIZE 0x100000
